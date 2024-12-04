@@ -32,16 +32,25 @@ class Train:
         #     self.model = vgg16(pretrained=loadPretrain, num_classes=number_classes, model_path=path)
 
         # Multi-GPU support
-        if torch.cuda.device_count() > 1:
-            print(f"There are {torch.cuda.device_count()} GPUs!")
-            self.model = nn.DataParallel(self.model)
-        elif torch.cuda.device_count() == 1:
-            print("There is only one GPU")
-        else:
-            print("Only use CPU")
+        import torch
 
-        if torch.cuda.is_available():
-            self.model.cuda()
+        if torch.backends.mps.is_available():
+            print("MPS is available!")
+        else:
+            device = torch.device("mps")
+            self.model = self.model.to(device)
+            print("MPS is not available. Check your PyTorch installation.")
+
+        # if torch.cuda.device_count() > 1:
+        #     print(f"There are {torch.cuda.device_count()} GPUs!")
+        #     self.model = nn.DataParallel(self.model)
+        # elif torch.cuda.device_count() == 1:
+        #     print("There is only one GPU")
+        # else:
+        #     print("Only use CPU")
+
+        # if torch.cuda.is_available():
+        #     self.model.cuda()
 
         # Initialize GAN
         self.noise_dim = 100
