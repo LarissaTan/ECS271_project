@@ -11,19 +11,19 @@ class Generator(nn.Module):
             nn.ReLU(),
             nn.Linear(512, 1024),
             nn.ReLU(),
-            nn.Linear(1024, img_channels * 64 * 64),  
+            nn.Linear(1024, img_channels * 224 * 224),  
             nn.Tanh()  
         )
 
     def forward(self, noise):
-        return self.net(noise).view(-1, 3, 64, 64) 
+        return self.net(noise).view(-1, 3, 224, 224) 
 
 class Discriminator(nn.Module):
     def __init__(self, img_channels):
         super(Discriminator, self).__init__()
         self.net = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(img_channels * 64 * 64, 512),
+            nn.Linear(img_channels * 224 * 224, 512),
             nn.LeakyReLU(0.2),
             nn.Linear(512, 256),
             nn.LeakyReLU(0.2),

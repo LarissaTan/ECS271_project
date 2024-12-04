@@ -7,55 +7,29 @@ from VGG import *
 from GAN import Generator, Discriminator
 import torch.nn as nn
 import torch.optim as optim
-import torch.nn.functional as F
-import torch.autograd as autograd
-from torch.utils.data import Dataset, DataLoader
-from PIL import Image
-import matplotlib.pyplot as plt
-from torchvision import datasets, models, transforms
+from torch.utils.data import DataLoader
+from torchvision import transforms
 
 class Train:
     def __init__(self, root_path="CACD2000/", model_name="resnet50", number_classes=2000, 
                  path="model.pkl", loadPretrain=False):
         """
-        Init Dataset, Model and others
+        Initialize Dataset, Model, and others
         """
+        self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+
         self.save_path = path
         self.cacd_dataset = ImageData(root_path=root_path, label_path="data/label.npy", 
                                        name_path="data/name.npy", train_mode="train")
         
-        self.model = resnet50(pretrained=loadPretrain, num_classes=number_classes, model_path=path)
-        # # Initialize classification model
-        # if model_name == "resnet50":
-        #     self.model = resnet50(pretrained=loadPretrain, num_classes=number_classes, model_path=path)
-        # elif model_name == "vgg16":
-        #     self.model = vgg16(pretrained=loadPretrain, num_classes=number_classes, model_path=path)
+        # Initialize classification model
+        self.model = resnet50(pretrained=loadPretrain, num_classes=number_classes, model_path=path).to(self.device)
 
-        # Multi-GPU support
-        import torch
-
-        if torch.backends.mps.is_available():
-            print("MPS is available!")
-        else:
-            device = torch.device("mps")
-            self.model = self.model.to(device)
-            print("MPS is not available. Check your PyTorch installation.")
-
-        # if torch.cuda.device_count() > 1:
-        #     print(f"There are {torch.cuda.device_count()} GPUs!")
-        #     self.model = nn.DataParallel(self.model)
-        # elif torch.cuda.device_count() == 1:
-        #     print("There is only one GPU")
-        # else:
-        #     print("Only use CPU")
-
-        # if torch.cuda.is_available():
-        #     self.model.cuda()
-
-        # Initialize GAN
+        # Initialize GAN components
         self.noise_dim = 100
-        self.generator = Generator(self.noise_dim, img_channels=3).cuda()
-        self.discriminator = Discriminator(img_channels=3).cuda()
+        self.generator = Generator(self.noise_dim, img_channels=3).to(self.device)
+        self.discriminator = Discriminator(img_channels=3).to(self.device)
 
         self.g_optimizer = optim.Adam(self.generator.parameters(), lr=0.0002)
         self.d_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.0002)
@@ -64,46 +38,38 @@ class Train:
 
     def start_train(self, epoch=10, batch_size=32, learning_rate=0.001, batch_display=50, save_freq=1):
         """
-        Detail of training
+        Train the models (GAN and classification)
         """
         self.epoch_num = epoch
         self.batch_size = batch_size
         self.lr = learning_rate
-        
+
         # Classification loss and optimizer
-        loss_function = nn.CrossEntropyLoss().cuda()
+        loss_function = nn.CrossEntropyLoss().to(self.device)
         optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
 
         for epoch in range(self.epoch_num):
             print(f"Starting epoch {epoch + 1}/{self.epoch_num}")
 
-            epoch_count = 0
-            total_loss = 0
             dataloader = DataLoader(self.cacd_dataset, batch_size=self.batch_size, shuffle=True)
 
             for i_batch, sample_batch in enumerate(dataloader):
                 print(f"Running: Epoch {epoch + 1}, Batch {i_batch + 1}")
- 
+            
                 # Step 1: Load data and labels
-                images_batch, labels_batch = sample_batch['image'], sample_batch['label']
-                labels_batch = torch.LongTensor(labels_batch.view(-1).numpy())
+                images_batch = sample_batch['image'].to(self.device)
+                labels_batch = sample_batch['label'].to(self.device).long().squeeze()
 
-                if torch.cuda.is_available():
-                    input_image = autograd.Variable(images_batch.cuda())
-                    target_label = autograd.Variable(labels_batch.cuda(non_blocking=True))
-                else:
-                    input_image = autograd.Variable(images_batch)
-                    target_label = autograd.Variable(labels_batch)
+                print(f"Image batch shape: {images_batch.shape}, Labels shape: {labels_batch.shape}")
 
                 # Step 2: Train Discriminator
-                real_images = input_image  # Real images from dataset
-                real_labels = torch.ones(self.batch_size, 1).cuda()
-                fake_labels = torch.zeros(self.batch_size, 1).cuda()
+                real_labels = torch.ones(images_batch.size(0), 1).to(self.device)
+                fake_labels = torch.zeros(images_batch.size(0), 1).to(self.device)
 
-                noise = torch.randn(self.batch_size, self.noise_dim).cuda()
-                fake_images = self.generator(noise)  # Generate adversarial examples
+                noise = torch.randn(images_batch.size(0), self.noise_dim).to(self.device)
+                fake_images = self.generator(noise)
 
-                real_output = self.discriminator(real_images)
+                real_output = self.discriminator(images_batch)
                 fake_output = self.discriminator(fake_images.detach())
 
                 d_loss_real = self.gan_loss(real_output, real_labels)
@@ -123,9 +89,11 @@ class Train:
                 self.g_optimizer.step()
 
                 # Step 4: Train Classification Model with Adversarial Examples
-                adv_images = fake_images.detach()  # Freeze generator gradients
+                adv_images = fake_images.detach()
                 output = self.model(adv_images)
-                loss_adv = loss_function(output, target_label)
+
+                print(f"Output shape: {output.shape}, Labels shape: {labels_batch.shape}")
+                loss_adv = loss_function(output, labels_batch)
 
                 optimizer.zero_grad()
                 loss_adv.backward()
@@ -134,11 +102,13 @@ class Train:
                 # Print results
                 if i_batch % batch_display == 0:
                     pred_prob, pred_label = torch.max(output, dim=1)
-                    batch_correct = (pred_label == target_label).sum().item() / self.batch_size
-                    print(f"Epoch: {epoch + 1}, Batch: {i_batch + 1}, D Loss: {d_loss.item()}, G Loss: {g_loss.item()}, "
-                          f"Classification Loss: {loss_adv.item()}, Accuracy: {batch_correct:.2f}")
+                    batch_correct = (pred_label == labels_batch).sum().item() / labels_batch.size(0)
+                    print(f"Epoch: {epoch + 1}, Batch: {i_batch + 1}, D Loss: {d_loss.item():.4f}, "
+                        f"G Loss: {g_loss.item():.4f}, Classification Loss: {loss_adv.item():.4f}, "
+                        f"Accuracy: {batch_correct:.2f}")
+
 
             # Save model
-            print(f"Saving model: Epoch {epoch + 1}, Average Loss: {total_loss / epoch_count:.4f}")
             if epoch % save_freq == 0:
                 torch.save(self.model.state_dict(), f"{self.save_path}_{epoch + 1}.pth")
+                print(f"Model saved at epoch {epoch + 1}.")

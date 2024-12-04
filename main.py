@@ -24,12 +24,6 @@ parser.add_argument("--save-freq", type=int, default=1,
 parser.add_argument("--pretrained", action='store_true',
                     help="Load pretrained model or not")
 
-import os
-import time 
-parser.add_argument("--save-freq", type=int, default=1,
-                    help="frequency to save model")
-parser.add_argument("--pretrained", action='store_true',
-                    help="Load pretrained model or not")
 
 args = parser.parse_args()
 
