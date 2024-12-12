@@ -3,7 +3,6 @@ import torch
 import numpy as np
 from data import *
 from ResNet import *
-from VGG import *
 from GAN import Generator, Discriminator
 import torch.nn as nn
 import torch.optim as optim
