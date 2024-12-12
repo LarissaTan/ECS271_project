@@ -12,15 +12,6 @@ def resnet50(pretrained=False, **kwargs):
         model.load_state_dict(torch.load(model.modelPath))
     return model
 
-# def resnet101(pretrained=False, **kwargs):
-#     """Constructs a ResNet-101 model.
-#     Args:
-#         pretrained (bool): If True, returns a model pre-trained on ImageNet
-#     """
-#     model = ResNet([3, 4, 23, 3], **kwargs)
-#     if pretrained:
-#         model.load_state_dict(torch.load(model.modelPath))
-#     return model
 
 class ResNet(nn.Module):
     """
