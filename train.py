@@ -21,10 +21,8 @@ class Train:
         self.cacd_dataset = ImageData(root_path=root_path, label_path="data/label.npy", 
                                       name_path="data/name.npy", train_mode="train")
         
-        # 初始化分类模型
         self.model = resnet50(pretrained=loadPretrain, num_classes=number_classes, model_path=path).to(self.device)
 
-        # 初始化 GAN 组件
         self.noise_dim = 100
         self.generator = Generator(self.noise_dim).to(self.device)
         self.discriminator = Discriminator(img_channels=3).to(self.device)
@@ -36,7 +34,7 @@ class Train:
         self.gan_loss = nn.BCELoss()
         self.classification_loss = nn.CrossEntropyLoss()
 
-    def start_train(self, epoch=10, batch_size=32, learning_rate=0.001, batch_display=50, save_freq=1):
+    def start_train(self, epoch=10, batch_size=32, learning_rate=0.001, save_freq=1):
         self.epoch_num = epoch
         self.batch_size = batch_size
         self.lr = learning_rate
@@ -47,16 +45,15 @@ class Train:
             dataloader = DataLoader(self.cacd_dataset, batch_size=self.batch_size, shuffle=True)
 
             for i_batch, sample_batch in enumerate(dataloader):
-                # 加载真实图像及标签
+
                 real_images = sample_batch['image'].to(self.device)
                 labels_batch = sample_batch['label'].to(self.device)
                 
-                # 确保 labels_batch 是 [batch_size] 且为 long 类型
+                
                 labels_batch = labels_batch.long().view(-1)
                 
                 batch_size = real_images.size(0)
 
-                # 正确生成 noise 的方式：二维张量 [batch_size, noise_dim]
                 noise = torch.randn(batch_size, self.noise_dim, device=self.device)
 
                 # =================== 训练判别器 ===================
@@ -94,15 +91,21 @@ class Train:
                 cls_loss.backward()
                 self.model_optimizer.step()
 
-                # =================== 打印日志 ===================
-                if i_batch % batch_display == 0:
+                # =================== 每100个batch打印日志并输出生成的图片 ===================
+                if i_batch % 100 == 0:
                     pred_prob, pred_label = torch.max(classification_output, dim=1)
                     batch_correct = (pred_label == labels_batch).sum().item() / batch_size
                     print(f"Epoch: {ep + 1}, Batch: {i_batch + 1}/{len(dataloader)}, "
                           f"D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}, "
                           f"Cls Loss: {cls_loss.item():.4f}, Accuracy: {batch_correct:.4f}")
+                    
+                    
+                    with torch.no_grad():
+                        sample_noise = torch.randn(self.batch_size, self.noise_dim, device=self.device)
+                        gen_samples = self.generator(real_images, sample_noise)
+                        vutils.save_image(gen_samples, f"fake_samples_epoch_{ep+1}_batch_{i_batch+1}.png", normalize=True, nrow=8)
 
-            # 保存模型
+
             if ep % save_freq == 0:
                 torch.save(self.model.state_dict(), f"{self.save_path}_{ep + 1}.pth")
                 print(f"Model saved at epoch {ep + 1}.")

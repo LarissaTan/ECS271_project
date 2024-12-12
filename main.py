@@ -32,4 +32,4 @@ if __name__ == '__main__':
                       path=args.model_path, loadPretrain=args.pretrained)
     
     trainCACD.start_train(epoch=args.num_epoch, batch_size=args.batch_size,
-                          learning_rate=args.lr, batch_display=args.batch_display, save_freq=args.save_freq)
+                          learning_rate=args.lr, save_freq=args.save_freq)
