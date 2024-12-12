@@ -32,8 +32,8 @@ class Train:
         self.generator = netG().to(self.device)
         self.discriminator = netD(img_channels=3).to(self.device)
 
-        self.g_optimizer = optim.Adam(self.generator.parameters(), lr=0.0002)
-        self.d_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.0002)
+        self.g_optimizer = optim.Adam(self.generator.parameters(), lr=0.0001)
+        self.d_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.0001)
 
         self.gan_loss = nn.BCELoss()
 
@@ -66,8 +66,8 @@ class Train:
                 print(f"Image batch shape: {images_batch.shape}, Labels shape: {labels_batch.shape}")
 
                 # Step 2: Train Discriminator
-                real_labels = torch.ones(images_batch.size(0), 1).to(self.device)
-                fake_labels = torch.zeros(images_batch.size(0), 1).to(self.device)
+                real_labels = torch.ones(images_batch.size(0), 1).to(self.device) * 0.9
+                fake_labels = torch.zeros(images_batch.size(0), 1).to(self.device) + 0.1
 
                 noise = torch.randn(images_batch.size(0), self.noise_dim).to(self.device)
                 fake_images = self.generator(noise)
@@ -85,13 +85,19 @@ class Train:
                 d_loss.backward()
                 self.d_optimizer.step()
 
-                # Step 3: Train Generator
-                fake_output = self.discriminator(fake_images)
-                g_loss = self.gan_loss(fake_output, real_labels)
 
-                self.g_optimizer.zero_grad()
-                g_loss.backward()
-                self.g_optimizer.step()
+                # Step 3: Train Generator multiple times
+                for _ in range(2):  # 这里设置生成器更新2次
+                    noise = torch.randn(images_batch.size(0), self.noise_dim).to(self.device)
+                    fake_images = self.generator(noise)
+                    fake_output = self.discriminator(fake_images)
+
+                    g_loss = self.gan_loss(fake_output, real_labels)
+
+                    self.g_optimizer.zero_grad()
+                    g_loss.backward()
+                    self.g_optimizer.step()
+
 
                 if i_batch % 200 == 0:
                     outimg = vutils.make_grid(fake_images.cpu(), padding=2, normalize=True)
