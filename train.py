@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from data import *
 from ResNet import *
-from GAN import Generator, Discriminator
+# from GAN import Generator, Discriminator
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -27,15 +27,15 @@ class Train:
 
         # Initialize GAN components
         self.noise_dim = 100
-        self.generator = Generator(self.noise_dim, img_channels=3).to(self.device)
-        self.discriminator = Discriminator(img_channels=3).to(self.device)
+        self.generator = netG().to(self.device)
+        self.discriminator = netD(img_channels=3).to(self.device)
 
         self.g_optimizer = optim.Adam(self.generator.parameters(), lr=0.0002)
         self.d_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.0002)
 
         self.gan_loss = nn.BCELoss()
 
-    def start_train(self, epoch=10, batch_size=32, learning_rate=0.001, batch_display=50, save_freq=1):
+    def start_train(self, epoch=10, batch_size=32, learning_rate=0.001, batch_display=50, save_freq=1, args = 0):
         """
         Train the models (GAN and classification)
         """
