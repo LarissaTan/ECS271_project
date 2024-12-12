@@ -126,36 +126,46 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
 
         return out
-
+    
 
 class netG(nn.Module):
     def __init__(self, noise_dim=100, img_channels=3):
         super(netG, self).__init__()
-        self.linear = nn.Linear(noise_dim, 512 * 7 * 7)  # 将噪声映射到特征空间
-        self.res_blocks = nn.Sequential(
-            Bottleneck(512, 128),
-            nn.Upsample(scale_factor=2),
-            Bottleneck(128 * Bottleneck.expansion, 64),
-            nn.Upsample(scale_factor=2),
-            Bottleneck(64 * Bottleneck.expansion, 32)
+        self.init_size = 7  # 初始图像尺寸
+        self.linear = nn.Sequential(
+            nn.Linear(noise_dim, 512 * self.init_size * self.init_size)
         )
-        self.conv = nn.Conv2d(32 * Bottleneck.expansion, img_channels, kernel_size=7, stride=1, padding=3)
-        self.tanh = nn.Tanh()  # 将输出范围归一化到 [-1, 1]
+        self.conv_blocks = nn.Sequential(
+            nn.BatchNorm2d(512),
+            nn.Upsample(scale_factor=2), 
+            nn.Conv2d(512, 256, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(True),
+            nn.Upsample(scale_factor=2), 
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(True),
+            nn.Upsample(scale_factor=2), 
+            nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(True),
+            nn.Upsample(scale_factor=4), 
+            nn.Conv2d(64, img_channels, kernel_size=3, stride=1, padding=1),
+            nn.Tanh()  
+        )
 
-    def forward(self, x):
-        x = self.linear(x)
-        x = x.view(x.size(0), 512, 7, 7)  # reshape 为特征图
-        x = self.res_blocks(x)
-        x = self.conv(x)
-        x = self.tanh(x)
-        return x
+    def forward(self, noise):
+        x = self.linear(noise)
+        x = x.view(x.size(0), 512, self.init_size, self.init_size) 
+        img = self.conv_blocks(x)
+        return img
 
 
 class netD(nn.Module):
     def __init__(self, img_channels=3):
         super(netD, self).__init__()
-        self.resnet = ResNet([2, 2, 2, 2], num_classes=1)  # 使用小型 ResNet 变体
-        self.sigmoid = nn.Sigmoid()  # 输出为概率
+        self.resnet = ResNet([3, 4, 6, 3], num_classes=1)  # ResNet([3, 4, 6, 3], **kwargs) 2， 2， 2，2
+        self.sigmoid = nn.Sigmoid()  
 
     def forward(self, x):
         x = self.resnet(x)

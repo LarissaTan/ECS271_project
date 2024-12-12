@@ -8,6 +8,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
+import matplotlib.pyplot as plt
+import torchvision.utils as vutils
 
 class Train:
     def __init__(self, root_path="CACD2000/", model_name="resnet50", number_classes=2000, 
@@ -34,6 +36,8 @@ class Train:
         self.d_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.0002)
 
         self.gan_loss = nn.BCELoss()
+
+
 
     def start_train(self, epoch=10, batch_size=32, learning_rate=0.001, batch_display=50, save_freq=1, args = 0):
         """
@@ -71,6 +75,8 @@ class Train:
                 real_output = self.discriminator(images_batch)
                 fake_output = self.discriminator(fake_images.detach())
 
+                
+
                 d_loss_real = self.gan_loss(real_output, real_labels)
                 d_loss_fake = self.gan_loss(fake_output, fake_labels)
                 d_loss = d_loss_real + d_loss_fake
@@ -86,6 +92,14 @@ class Train:
                 self.g_optimizer.zero_grad()
                 g_loss.backward()
                 self.g_optimizer.step()
+
+                if i_batch % 200 == 0:
+                    outimg = vutils.make_grid(fake_images.cpu(), padding=2, normalize=True)
+                    plt.subplot(1,2,2)
+                    plt.axis("off")
+                    plt.title("Fake Images")
+                    plt.imshow(np.transpose(outimg,(1,2,0)))
+                    plt.show()
 
                 # Step 4: Train Classification Model with Adversarial Examples
                 adv_images = fake_images.detach()
