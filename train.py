@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from data import *
 from ResNet import *
-# from GAN import Generator, Discriminator
+from GAN import *
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
@@ -14,68 +14,58 @@ import torchvision.utils as vutils
 class Train:
     def __init__(self, root_path="CACD2000/", model_name="resnet50", number_classes=2000, 
                  path="model.pkl", loadPretrain=False):
-        """
-        Initialize Dataset, Model, and others
-        """
         self.device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
         print(f"Using device: {self.device}")
 
         self.save_path = path
         self.cacd_dataset = ImageData(root_path=root_path, label_path="data/label.npy", 
-                                       name_path="data/name.npy", train_mode="train")
+                                      name_path="data/name.npy", train_mode="train")
         
-        # Initialize classification model
+        # 初始化分类模型
         self.model = resnet50(pretrained=loadPretrain, num_classes=number_classes, model_path=path).to(self.device)
 
-        # Initialize GAN components
+        # 初始化 GAN 组件
         self.noise_dim = 100
-        self.generator = netG().to(self.device)
-        self.discriminator = netD(img_channels=3).to(self.device)
+        self.generator = Generator(self.noise_dim).to(self.device)
+        self.discriminator = Discriminator(img_channels=3).to(self.device)
 
         self.g_optimizer = optim.Adam(self.generator.parameters(), lr=0.0001)
         self.d_optimizer = optim.Adam(self.discriminator.parameters(), lr=0.0001)
+        self.model_optimizer = optim.Adam(self.model.parameters(), lr=0.001)
 
         self.gan_loss = nn.BCELoss()
+        self.classification_loss = nn.CrossEntropyLoss()
 
-
-
-    def start_train(self, epoch=10, batch_size=32, learning_rate=0.001, batch_display=50, save_freq=1, args = 0):
-        """
-        Train the models (GAN and classification)
-        """
+    def start_train(self, epoch=10, batch_size=32, learning_rate=0.001, batch_display=50, save_freq=1):
         self.epoch_num = epoch
         self.batch_size = batch_size
         self.lr = learning_rate
 
-        # Classification loss and optimizer
-        loss_function = nn.CrossEntropyLoss().to(self.device)
-        optimizer = optim.Adam(self.model.parameters(), lr=self.lr)
-
-        for epoch in range(self.epoch_num):
-            print(f"Starting epoch {epoch + 1}/{self.epoch_num}")
+        for ep in range(self.epoch_num):
+            print(f"Starting epoch {ep + 1}/{self.epoch_num}")
 
             dataloader = DataLoader(self.cacd_dataset, batch_size=self.batch_size, shuffle=True)
 
             for i_batch, sample_batch in enumerate(dataloader):
-                print(f"Running: Epoch {epoch + 1}, Batch {i_batch + 1}")
-            
-                # Step 1: Load data and labels
-                images_batch = sample_batch['image'].to(self.device)
-                labels_batch = sample_batch['label'].to(self.device).long().squeeze()
+                # 加载真实图像及标签
+                real_images = sample_batch['image'].to(self.device)
+                labels_batch = sample_batch['label'].to(self.device)
+                
+                # 确保 labels_batch 是 [batch_size] 且为 long 类型
+                labels_batch = labels_batch.long().view(-1)
+                
+                batch_size = real_images.size(0)
 
-                print(f"Image batch shape: {images_batch.shape}, Labels shape: {labels_batch.shape}")
+                # 正确生成 noise 的方式：二维张量 [batch_size, noise_dim]
+                noise = torch.randn(batch_size, self.noise_dim, device=self.device)
 
-                # Step 2: Train Discriminator
-                real_labels = torch.ones(images_batch.size(0), 1).to(self.device) * 0.9
-                fake_labels = torch.zeros(images_batch.size(0), 1).to(self.device) + 0.1
-
-                noise = torch.randn(images_batch.size(0), self.noise_dim).to(self.device)
-                fake_images = self.generator(noise)
-
-                real_output = self.discriminator(images_batch)
+                # =================== 训练判别器 ===================
+                fake_images = self.generator(real_images, noise)
+                real_output = self.discriminator(real_images)
                 fake_output = self.discriminator(fake_images.detach())
 
-                
+                real_labels = torch.ones(batch_size, 1).to(self.device)
+                fake_labels = torch.zeros(batch_size, 1).to(self.device)
 
                 d_loss_real = self.gan_loss(real_output, real_labels)
                 d_loss_fake = self.gan_loss(fake_output, fake_labels)
@@ -85,49 +75,34 @@ class Train:
                 d_loss.backward()
                 self.d_optimizer.step()
 
+                # =================== 训练生成器 ===================
+                fake_images = self.generator(real_images, noise)
+                fake_output = self.discriminator(fake_images)
 
-                # Step 3: Train Generator multiple times
-                for _ in range(2):  # 这里设置生成器更新2次
-                    noise = torch.randn(images_batch.size(0), self.noise_dim).to(self.device)
-                    fake_images = self.generator(noise)
-                    fake_output = self.discriminator(fake_images)
+                g_loss = self.gan_loss(fake_output, real_labels)
 
-                    g_loss = self.gan_loss(fake_output, real_labels)
+                self.g_optimizer.zero_grad()
+                g_loss.backward()
+                self.g_optimizer.step()
 
-                    self.g_optimizer.zero_grad()
-                    g_loss.backward()
-                    self.g_optimizer.step()
-
-
-                if i_batch % 200 == 0:
-                    outimg = vutils.make_grid(fake_images.cpu(), padding=2, normalize=True)
-                    plt.subplot(1,2,2)
-                    plt.axis("off")
-                    plt.title("Fake Images")
-                    plt.imshow(np.transpose(outimg,(1,2,0)))
-                    plt.show()
-
-                # Step 4: Train Classification Model with Adversarial Examples
+                # =================== 训练分类模型 ===================
                 adv_images = fake_images.detach()
-                output = self.model(adv_images)
+                classification_output = self.model(adv_images)
+                cls_loss = self.classification_loss(classification_output, labels_batch)
 
-                print(f"Output shape: {output.shape}, Labels shape: {labels_batch.shape}")
-                loss_adv = loss_function(output, labels_batch)
+                self.model_optimizer.zero_grad()
+                cls_loss.backward()
+                self.model_optimizer.step()
 
-                optimizer.zero_grad()
-                loss_adv.backward()
-                optimizer.step()
-
-                # Print results
+                # =================== 打印日志 ===================
                 if i_batch % batch_display == 0:
-                    pred_prob, pred_label = torch.max(output, dim=1)
-                    batch_correct = (pred_label == labels_batch).sum().item() / labels_batch.size(0)
-                    print(f"Epoch: {epoch + 1}, Batch: {i_batch + 1}, D Loss: {d_loss.item():.4f}, "
-                        f"G Loss: {g_loss.item():.4f}, Classification Loss: {loss_adv.item():.4f}, "
-                        f"Accuracy: {batch_correct:.2f}")
+                    pred_prob, pred_label = torch.max(classification_output, dim=1)
+                    batch_correct = (pred_label == labels_batch).sum().item() / batch_size
+                    print(f"Epoch: {ep + 1}, Batch: {i_batch + 1}/{len(dataloader)}, "
+                          f"D Loss: {d_loss.item():.4f}, G Loss: {g_loss.item():.4f}, "
+                          f"Cls Loss: {cls_loss.item():.4f}, Accuracy: {batch_correct:.4f}")
 
-
-            # Save model
-            if epoch % save_freq == 0:
-                torch.save(self.model.state_dict(), f"{self.save_path}_{epoch + 1}.pth")
-                print(f"Model saved at epoch {epoch + 1}.")
+            # 保存模型
+            if ep % save_freq == 0:
+                torch.save(self.model.state_dict(), f"{self.save_path}_{ep + 1}.pth")
+                print(f"Model saved at epoch {ep + 1}.")
